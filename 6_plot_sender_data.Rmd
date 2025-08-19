@@ -1,0 +1,36 @@
+---
+title: "plot_sender_data"
+output: html_document
+---
+
+
+```{r setup}
+knitr::opts_knit$set(root.dir = "~/Alyssa/Cell_Free_DNA_Methylation/")
+library(tidyverse)
+
+save_plot = function(plot, file, legend = TRUE, width = 4, height = 4, png = FALSE) {
+  if (png) { ggsave(plot = plot, filename =  paste0(file, ".png"), dpi = 600, width = ifelse(legend, width, width - 1.5), height = height, units = 'in') }
+  ggsave(plot = plot, filename =  paste0(file, ".pdf"), dpi = 600, width = ifelse(legend, width, width - 1.5), height = height, units = 'in')
+}
+```
+
+# Data about cell-free DNA origin from here: https://elifesciences.org/articles/89321/figures
+```{r}
+fractions = data.frame(cell_type = c("Erythrocytes", "Monocytes/macrophages", "Megakaryocytes", "Granulocytes", "Hepatocytes", "Endothelial cells", "Lymphocytes", "Other"), fraction = c(6, 19, 27, 32, 2, 7, 4, 2), tissue = c("Blood cells", "Blood cells", "Blood cells", "Blood cells", "Liver cells", "Endothelial cells", "Blood cells", "Other"), data_type = "cfDNA")
+
+
+```
+
+```{r}
+colors = c("#94221F", "darkgrey", "lightgrey", "black")
+(cfDNA_fraction_bar = ggplot(fractions, aes(x = data_type, y = fraction, fill = tissue)) +
+  geom_bar(position = "fill", stat = "identity") +
+  theme_bw() +
+  ylab("Proportion") +
+  xlab("") +
+  labs(fill = "Cell type") +
+  scale_fill_manual(values = colors) +
+  theme(panel.grid = element_blank()))
+save_plot(cfDNA_fraction_bar, "figures/bars/sender_cfDNA_composition", png = TRUE, height = 3, width = 3)
+```
+

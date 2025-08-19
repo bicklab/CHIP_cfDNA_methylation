@@ -1,0 +1,154 @@
+---
+title: "compare_cell_types"
+output: html_document
+---
+
+
+```{r setup}
+knitr::opts_knit$set(root.dir = "~/Alyssa/Cell_Free_DNA_Methylation/")
+library(tidyverse)
+library(smplot2)
+
+save_plot = function(plot, file, legend = TRUE, width = 4, height = 4, png = FALSE) {
+  if (png) { ggsave(plot = plot, filename =  paste0(file, ".png"), dpi = 600, width = ifelse(legend, width, width - 1.5), height = height, units = 'in') }
+  ggsave(plot = plot, filename =  paste0(file, ".pdf"), dpi = 600, width = ifelse(legend, width, width - 1.5), height = height, units = 'in')
+}
+
+```
+
+
+# Load blood and cf data.
+```{r}
+blood_methylCC = read_tsv("tables/blood_94_methylCC_counts.tsv")
+cf_methylCC = read_tsv("tables/cf_92_methylCC_counts.tsv")
+
+# Function to subtract 95 from the last section
+subtract_95 = function(x) {
+  parts = strsplit(x, "-")[[1]]
+  last_part = as.numeric(parts[length(parts)])
+  new_last_part = last_part - 95
+  parts[length(parts)] = sprintf("%04d", new_last_part) # Format to keep leading zeros
+  paste(parts, collapse = "-")
+}
+
+blood_chive_ids = read_csv("input_data/JVA-11996_sample_ids.csv")
+blood_chive_ids$VANTAGE_ID = lapply(blood_chive_ids$VANTAGE_ID, subtract_95) %>% unlist()
+
+cf_chive_ids = read_csv("input_data/JVA-12708_sample_ids.csv")
+```
+
+# Format data.
+```{r}
+pivot_and_label = function(methylCC_df, id_start, id_end) {
+  methylCC_df = methylCC_df %>%
+    pivot_wider(names_from = "celltype", values_from = "est") %>%
+    mutate(VANTAGE_ID = substr(samples, id_start, id_end)) %>%
+    dplyr::select(-samples)
+  return(methylCC_df)
+}
+
+blood_df = pivot_and_label(blood_methylCC, id_start = 28, id_end = 41)
+cf_df = pivot_and_label(cf_methylCC, id_start = 25, id_end = 37)
+
+blood_df = blood_df %>%
+  left_join(blood_chive_ids)
+cf_df = cf_df %>%
+  left_join(cf_chive_ids)
+
+blood_cf_df = inner_join(cf_df, blood_df, by = c("Sample_ID", CHIVE_ID = "Patient_ID"))
+inclusion_categories = read_csv("input_data/cf_dna_inclusion_categories.csv") 
+inclusion_categories$Group[inclusion_categories$Patient_ID == "CH-22-047" & inclusion_categories$Sample_ID == "C24-07-006"] = "No CHIP"
+inclusion_categories = unique(inclusion_categories)
+
+blood_cf_df = left_join(blood_cf_df, inclusion_categories) %>%
+  mutate(Tissue = ifelse(Group %in% c("BM (3 months apart)", "BM (from BM)", "BM (same day)", "BM (6 months apart)"), "BM", "Blood"))
+blood_cf_cell_types = blood_cf_df %>%
+  pivot_longer(cols = c("Gran.x", "CD4T.x", "CD8T.x", "Bcell.x", "Mono.x", "NK.x", "Gran.y", "CD4T.y", "CD8T.y", "Bcell.y", "Mono.y", "NK.y"), 
+               names_to = "CellType", values_to = "Proportion") %>%
+  mutate(Type = str_extract(CellType, "\\.x|\\.y"),
+         CellType = str_remove(CellType, "\\.x|\\.y"))
+
+blood_cf_cell_types$`...4` = NULL
+write_tsv(blood_cf_cell_types, "tables/blood_cf_cell_types.tsv")
+```
+
+# Plot cell-type proportions.
+```{r}
+blood_cf_cell_types = read_tsv("tables/blood_cf_cell_types.tsv") %>%
+  filter(Tissue == "Blood")
+
+numbered_samples = blood_cf_cell_types %>%
+  group_by(Patient_ID) %>%
+  select(Patient_ID, Sample_ID) %>%
+  unique() %>%
+  arrange(Sample_ID) %>%
+  group_by(Patient_ID) %>%
+  mutate(Sample_Number = factor(row_number()))
+
+blood_cf_cell_types = left_join(blood_cf_cell_types, numbered_samples) %>%
+  filter(Sample_Number == 1)
+
+
+# Define colors for each cell type
+colors = c("CD8+ T cells" = "#17becf", "B cells" = "#ff7f0e", "Granulocytes" = "#2ca02c", "Monocytes" = "#e377c2", "CD4+ T cells" = "#9467bd", "NK cells" = "#8c564b")
+
+blood_cf_cell_types$Type[blood_cf_cell_types$Type == ".y"] = " Whole blood DNA predicted origin-cell-type proportions"
+blood_cf_cell_types$Type[blood_cf_cell_types$Type == ".x"] = "cfDNA predicted origin-cell-type proportions"
+
+blood_cf_cell_types$CellType[blood_cf_cell_types$CellType == "CD8T"] = "CD8+ T cells"
+blood_cf_cell_types$CellType[blood_cf_cell_types$CellType == "Bcell"] = "B cells"
+blood_cf_cell_types$CellType[blood_cf_cell_types$CellType == "Gran"] = "Granulocytes"
+blood_cf_cell_types$CellType[blood_cf_cell_types$CellType == "Mono"] = "Monocytes"
+blood_cf_cell_types$CellType[blood_cf_cell_types$CellType == "CD4T"] = "CD4+ T cells"
+blood_cf_cell_types$CellType[blood_cf_cell_types$CellType == "NK"] = "NK cells"
+
+# Order Samples by largest proportion of Gran to smallest
+sample_order = blood_cf_cell_types %>%
+  filter(Type == " Whole blood DNA predicted origin-cell-type proportions") %>%
+  filter(CellType == "B cells") %>%
+  arrange(Proportion) %>%
+  pull(Sample_ID) %>%
+  unique()
+
+# Plotting
+(plasma_blood_proportions = ggplot(blood_cf_cell_types, aes(x = factor(Sample_ID, levels = sample_order), y = Proportion, fill = CellType)) +
+    geom_bar(stat = "identity", position = "fill", width = 0.8) +
+  facet_wrap(~ Type, ncol = 1) +
+  scale_fill_manual(values = colors, name = "Cell type") +
+  labs(x = "Sample", y = "Proportion") +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), panel.grid = element_blank()))
+
+save_plot(plasma_blood_proportions, "figures/bars/plasma_blood_proportions", png = TRUE, width = 8, height = 3)
+save_plot(plasma_blood_proportions, "figures/bars/plasma_blood_proportions_narrow", png = TRUE, width = 5.5, height = 5)
+
+```
+
+# Test difference in monocyte fractions.
+```{r}
+cf_monos = blood_cf_cell_types %>%
+  filter(Type == "Cell-type proportions in plasma") %>%
+  filter(CellType == "Mono") %>%
+  pull(Proportion)
+bc_monos = blood_cf_cell_types %>%
+  filter(Type == "Cell-type proportions in blood") %>%
+  filter(CellType == "Mono") %>%
+  pull(Proportion)
+
+t.test(cf_monos, bc_monos)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

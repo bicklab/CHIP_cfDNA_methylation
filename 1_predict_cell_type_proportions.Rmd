@@ -1,0 +1,123 @@
+---
+title: "predict_cell_type_proportions"
+output: html_document
+---
+
+
+```{r setup}
+knitr::opts_knit$set(root.dir = "~/Alyssa/Cell_Free_DNA_Methylation/")
+
+library(GenomicRanges)
+library(methylCC)
+library(tidyverse)
+library(rtracklayer)
+library(bsseq)
+```
+
+
+# methylCC tutorial: https://www.bioconductor.org/packages/release/bioc/vignettes/methylCC/inst/doc/methylCC.html
+# bsseq tutorial:
+
+# Copy over files.
+```{r}
+system("gsutil -m cp -r gs://bicklab-main-storage/Data/vantage/12708-JVA/CX_report input_data/") # then renamed CX_report_cf
+system("gsutil -m cp -r gs://bicklab-main-storage/Data/vantage/11996-JVA/Methylation/CX_report input_data/") # then renamed CX_report_blood
+```
+
+
+# Regions called by methylCC are hg19 so need to liftover reference to hg38 before filtering our files.
+```{r}
+gr_split = readRDS("../DNA_Methylation/output_data/gr_split.rds")
+
+chain_19_to_38 = import.chain("../DNA_Methylation/input_data/hg19ToHg38.over.chain")
+hg38_gr_split = gr_split %>%
+  rtracklayer::liftOver(chain_19_to_38) %>%
+  unlist()
+
+```
+
+# Read in cytosine report files.
+```{r}
+cf_files = paste0("input_data/CX_report_cf/", list.files(path = "input_data/CX_report_cf/", pattern = "*CX_report.txt.gz"))
+cf_data = bsseq::read.bismark(files = cf_files, loci = hg38_gr_split)
+saveRDS(cf_data, "output_data/cf_92_bsseq_hg38.rds")
+
+
+blood_files = paste0("input_data/CX_report_blood/", list.files(path = "input_data/CX_report_blood/", pattern = "*CX_report.txt.gz"))[-c(19, 96)]
+blood_data = bsseq::read.bismark(files = blood_files, loci = hg38_gr_split)
+saveRDS(blood_data, "output_data/blood_94_bsseq_hg38.rds")
+
+```
+
+# Filter.
+```{r}
+filter = function(input_data, coverage = 1, n_groups = 10) {
+  bs = GenomeInfoDb::keepStandardChromosomes(input_data, pruning.mode = "coarse")
+  n_samples = nrow(input_data@colData)
+  loci.idx = which(DelayedMatrixStats::rowSums2(getCoverage(bs, type="Cov") >= coverage) >= n_groups)
+  bs.filtered = bs[loci.idx, ]
+
+  return(bs.filtered)
+}
+
+cf_data = readRDS("output_data/cf_92_bsseq_hg38.rds")
+blood_data = readRDS("output_data/blood_94_bsseq_hg38.rds")
+
+
+cf_filtered = filter(cf_data)
+blood_filtered = filter(blood_data)
+
+```
+
+# Liftover data from hg38 to hg19 in prep for methylCC.
+```{r}
+liftover_prep_for_methylCC = function(filtered_bs) {
+  # Make indices
+  mcols(filtered_bs)$index = 1:length(filtered_bs)
+  hg38 = rowRanges(filtered_bs)
+  hg38$index = 1:length(hg38)
+  
+  # Liftover ranges
+  hg19 = hg38 %>%
+    rtracklayer::liftOver(AnnotationHub::AnnotationHub()[["AH14108"]]) %>%
+    unlist()
+  
+  # Subset based on regions that lifted over
+  bs_hg19 = filtered_bs[which(hg19$index %in% hg38$index)]
+  
+  # Assign lifted over regions
+  rowRanges(bs_hg19) = hg19
+  
+  glue::glue("{length(bs_hg19)} out of {length(filtered_bs)} were lifted over")
+  glue::glue("{length(filtered_bs) - length(bs_hg19)} did not liftOver")
+  
+  return(bs_hg19)
+}
+
+cf_hg19 = liftover_prep_for_methylCC(cf_filtered)
+blood_hg19 = liftover_prep_for_methylCC(blood_filtered)
+```
+
+# Estimate cell fractions.
+```{r}
+cf_est = estimatecc(cf_hg19, include_cpgs = TRUE, include_dmrs = TRUE)
+blood_est = estimatecc(blood_hg19, include_cpgs = TRUE, include_dmrs = TRUE)
+
+cell_counts(est)
+```
+
+
+# Save results.
+```{r}
+cf_methylCC = gather(cbind("samples" = rownames(cell_counts(cf_est)), cell_counts(cf_est)), celltype, est, -samples)
+write_tsv(cf_methylCC, "tables/cf_92_methylCC_counts.tsv") 
+
+blood_methylCC = gather(cbind("samples" = rownames(cell_counts(blood_est)), cell_counts(blood_est)), celltype, est, -samples)
+write_tsv(blood_methylCC, "tables/blood_94_methylCC_counts.tsv")
+```
+
+
+
+
+
+

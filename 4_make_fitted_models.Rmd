@@ -1,0 +1,134 @@
+---
+title: "R Notebook"
+output: html_document
+---
+
+
+```{r setup}
+knitr::opts_knit$set(root.dir = "~/Alyssa/Cell_Free_DNA_Methylation/")
+library(tidyverse)
+library(smplot2)
+
+save_plot = function(plot, file, legend = TRUE, width = 4, height = 4, png = FALSE) {
+  if (png) { ggsave(plot = plot, filename =  paste0(file, ".png"), dpi = 600, width = ifelse(legend, width, width - 1.5), height = height, units = 'in') }
+  ggsave(plot = plot, filename =  paste0(file, ".pdf"), dpi = 600, width = ifelse(legend, width, width - 1.5), height = height, units = 'in')
+}
+
+```
+
+
+
+```{r}
+blood_cf_celltypes_vafs = read_tsv("tables/blood_cf_celltypes_vafs.tsv") %>%
+  filter(Tissue == "Blood", Sample_Number == 1)
+
+print("TET2")
+lm(bc_AF ~ cf_AF + cf_methylation_Gran + cf_methylation_Bcell + cf_methylation_Mono, data = blood_cf_celltypes_vafs %>% filter(Gene == "TET2"))
+print("DNMT3A")
+lm(bc_AF ~ cf_AF + cf_methylation_Gran + cf_methylation_Bcell + cf_methylation_Mono, data = blood_cf_celltypes_vafs %>% filter(Gene == "DNMT3A"))
+print("PPM1D")
+lm(bc_AF ~ cf_AF + cf_methylation_Gran + cf_methylation_Bcell + cf_methylation_Mono, data = blood_cf_celltypes_vafs %>% filter(Gene == "PPM1D"))
+print("SF3B1")
+lm(bc_AF ~ cf_AF + cf_methylation_Gran + cf_methylation_Bcell + cf_methylation_Mono, data = blood_cf_celltypes_vafs %>% filter(Gene == "SF3B1"))
+print("TP53")
+lm(bc_AF ~ cf_AF + cf_methylation_Gran + cf_methylation_Bcell + cf_methylation_Mono, data = blood_cf_celltypes_vafs %>% filter(Gene == "TP53"))
+```
+
+```{r}
+(tet2_bc_vaf_from_cf_and_cells = ggplot(blood_cf_celltypes_vafs %>% filter(Gene == "TET2"), aes(x = 0.6663 * cf_AF - 2.1878 * cf_methylation_Gran - 1.527 * cf_methylation_Bcell - 2.7807 * cf_methylation_Mono + 2.054, y = bc_AF)) +
+  geom_abline(slope = 1, intercept = 0, color = "grey") +
+  sm_statCorr(R2 = TRUE, color = "#d62728") +
+  geom_point() +
+  theme_bw() +
+  ylab("Whole blood DNA VAF") +
+  xlab("0.7(cfVAF) - 2.2(Gran) - 1.5(B) - 2.8(Mono) + 2.1") +
+  ylim(0,0.45) +
+  xlim(0,0.45) +
+  theme(axis.title.x = element_text(size = 8)) +
+  ggtitle("TET2"))
+save_plot(tet2_bc_vaf_from_cf_and_cells, "figures/fitted_models/tet2_fitted", png = TRUE, height = 3, width = 3)
+
+(dnmt3a_bc_vaf_from_cf_and_cells = ggplot(blood_cf_celltypes_vafs %>% filter(Gene == "DNMT3A"), aes(x = 0.82 * cf_AF + 0.1082 * cf_methylation_Gran + 0.4302 * cf_methylation_Bcell + 0.1028 * cf_methylation_Mono - 0.2149, y = bc_AF)) +
+  geom_abline(slope = 1, intercept = 0, color = "grey") +
+  sm_statCorr(R2 = TRUE, color = "#d62728") +
+  geom_point() +
+  theme_bw() +
+  ylab("Whole blood DNA VAF") +
+  xlab("0.8(cfVAF) + 0.1(Gran) + 0.4(B) + 0.1(Mono) - 0.2") +
+  ylim(0,0.4) +
+  xlim(0,0.4) +
+  theme(axis.title.x = element_text(size = 8)) +
+  ggtitle("DNMT3A"))
+save_plot(dnmt3a_bc_vaf_from_cf_and_cells, "figures/fitted_models/dnmt3a_fitted", png = TRUE, height = 3, width = 3)
+
+(ppm1d_bc_vaf_from_cf_and_cells = ggplot(blood_cf_celltypes_vafs %>% filter(Gene == "PPM1D"), aes(x = 1.437 * cf_AF - 0.2407 * cf_methylation_Gran - 1.5914 * cf_methylation_Bcell + 0.63, y = bc_AF)) +
+  geom_abline(slope = 1, intercept = 0, color = "grey") +
+  sm_statCorr(R2 = TRUE, color = "#d62728") +
+  geom_point() +
+  theme_bw() +
+  ylab("Whole blood DNA VAF") +
+  xlab("1.4(cfVAF) - 0.2(Gran) - 1.6(B) + 0.6") +
+  ylim(0,0.3) +
+  xlim(0,0.3) +
+  theme(axis.title.x = element_text(size = 8)) +
+  ggtitle("PPM1D"))
+save_plot(ppm1d_bc_vaf_from_cf_and_cells, "figures/fitted_models/ppm1d_fitted", png = TRUE, height = 3, width = 3)
+
+(sf3b1_bc_vaf_from_cf_and_cells = ggplot(blood_cf_celltypes_vafs %>% filter(Gene == "SF3B1"), aes(x = -0.04839 * cf_AF - 1.58442 * cf_methylation_Gran + 1.45129 * cf_methylation_Bcell + 0.36717, y = bc_AF)) +
+  geom_abline(slope = 1, intercept = 0, color = "grey") +
+  sm_statCorr(R2 = TRUE, color = "#d62728") +
+  geom_point() +
+  theme_bw() +
+  ylab("Whole blood DNA VAF") +
+  xlab("-0.05(cfVAF) - 1.6(Gran) + 1.5(B) + 0.4") +
+  ylim(0,0.35) +
+  xlim(0,0.35) +
+  theme(axis.title.x = element_text(size = 8)) +
+  ggtitle("SF3B1"))
+save_plot(sf3b1_bc_vaf_from_cf_and_cells, "figures/fitted_models/sf3b1_fitted", png = TRUE, height = 3, width = 3)
+
+(tp53_bc_vaf_from_cf_and_cells = ggplot(blood_cf_celltypes_vafs %>% filter(Gene == "TP53"), aes(x = 1.0225 * cf_AF - 0.9979 * cf_methylation_Gran - 1.7535 * cf_methylation_Bcell + 1.0688, y = bc_AF)) +
+  geom_abline(slope = 1, intercept = 0, color = "grey") +
+  sm_statCorr(R2 = TRUE, color = "#d62728") +
+  geom_point() +
+  theme_bw() +
+  ylab("Whole blood DNA VAF") +
+  xlab("cfVAF - Gran - 1.8(B) + 1.1") +
+  ylim(0,0.2) +
+  xlim(0,0.2) +
+  theme(axis.title.x = element_text(size = 8)) +
+  ggtitle("TP53"))
+save_plot(tp53_bc_vaf_from_cf_and_cells, "figures/fitted_models/tp53_fitted", png = TRUE, height = 3, width = 3)
+
+
+```
+
+
+
+
+```{r}
+variants_detected = blood_cf_celltypes_vafs %>%
+  select(Gene, Variant, cf_AF, bc_AF)
+
+variants_detected = variants_detected[rowSums(is.na(variants_detected)) != ncol(variants_detected),]
+variants_detected$bc = ifelse(is.na(variants_detected$bc_AF), FALSE, TRUE)
+variants_detected$cf = ifelse(is.na(variants_detected$cf_AF), FALSE, TRUE)
+
+variants_detected$bc_low = ifelse(variants_detected$bc_AF >= 0.1 | is.na(variants_detected$bc_AF), FALSE, TRUE)
+variants_detected$bc_high = ifelse(variants_detected$bc_AF < 0.1 | is.na(variants_detected$bc_AF), FALSE, TRUE)
+
+variants_detected$cf_low = ifelse(variants_detected$cf_AF >= 0.1 | is.na(variants_detected$cf_AF), FALSE, TRUE)
+variants_detected$cf_high = ifelse(variants_detected$cf_AF < 0.1 | is.na(variants_detected$cf_AF), FALSE, TRUE)
+
+table(variants_detected$bc, variants_detected$cf)
+table(variants_detected$bc_low, variants_detected$cf_low)
+table(variants_detected$bc_high, variants_detected$cf_high)
+
+cf_only = variants_detected %>%
+  filter(bc == FALSE)
+table(cf_only$cf_low, cf_only$cf_high)
+
+```
+
+
+

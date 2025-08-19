@@ -1,0 +1,175 @@
+---
+title: "R Notebook"
+output: html_document
+---
+
+
+```{r setup}
+knitr::opts_knit$set(root.dir = "~/Alyssa/Cell_Free_DNA_Methylation/")
+library(tidyverse)
+library(smplot2)
+library(ComplexUpset)
+library(UpSetR)
+library(reshape2)
+
+save_plot = function(plot, file, legend = TRUE, width = 4, height = 4, png = FALSE) {
+  if (png) { ggsave(plot = plot, filename =  paste0(file, ".png"), dpi = 600, width = ifelse(legend, width, width - 1.5), height = height, units = 'in') }
+  ggsave(plot = plot, filename =  paste0(file, ".pdf"), dpi = 600, width = ifelse(legend, width, width - 1.5), height = height, units = 'in')
+}
+
+```
+
+```{r}
+blood_cf_celltypes_vafs = read_tsv("tables/blood_cf_celltypes_vafs.tsv")
+
+vafs_for_plotting = blood_cf_celltypes_vafs %>% 
+  mutate(Mutation = ifelse(Gene == "TET2", "TET2", ifelse(Gene == "DNMT3A", "DNMT3A", "Other"))) %>%
+  mutate(Mutation = factor(Mutation, levels = c("TET2", "DNMT3A", "Other"))) %>%
+  select(Sample_ID, Patient_ID, Mutation, Gene, Variant, Variant_Type, cf_AF, bc_AF, Tissue) %>%
+  mutate(Identifier = paste(Sample_ID, Gene, Variant, sep = "_")) %>%
+  filter(Tissue == "Blood")
+
+numbered_samples = vafs_for_plotting %>%
+  group_by(Patient_ID) %>%
+  select(Patient_ID, Sample_ID) %>%
+  unique() %>%
+  arrange(Sample_ID) %>%
+  group_by(Patient_ID) %>%
+  mutate(Sample_Number = factor(row_number()))
+
+vafs_for_plotting = left_join(vafs_for_plotting, numbered_samples)
+
+multiple_sampled = numbered_samples %>%
+  summarize(Num_Sampled = n()) %>%
+  filter(Num_Sampled > 1)
+
+multi_sample_vafs = vafs_for_plotting %>%
+  filter(Patient_ID %in% multiple_sampled$Patient_ID) %>%
+  pivot_longer(cols = c(cf_AF, bc_AF), names_to = "Sample_Type", values_to = "VAF")
+
+first_vafs_for_plotting = vafs_for_plotting %>%
+  filter(Sample_Number == 1)
+```
+
+
+
+
+```{r}
+first_vafs_for_plotting = first_vafs_for_plotting %>%
+  mutate(plasma = !(is.na(cf_AF)), blood = !(is.na(bc_AF))) %>%
+  filter(plasma | blood)
+
+
+svg("figures/upset/variants_with_vafs.svg", height = 5, width = 5.5)
+
+ComplexUpset::upset(
+    first_vafs_for_plotting,
+    c("plasma", "blood"),
+    base_annotations=list(
+      'Intersection size'=(
+        intersection_size(bar_number_threshold = 1)
+      )
+    ),
+    annotations = list(
+
+        'Blood VAF'=(
+            ggplot(mapping=aes(y=bc_AF))
+            + geom_jitter(na.rm=TRUE, aes(color = Mutation))
+            + scale_color_manual(values = c("#d62728", "#1f77b4", "black", "grey")) 
+            + theme(legend.position = "none")
+            + ylim(0,0.6)
+        ),
+        'Plasma VAF'=(
+            ggplot(mapping=aes(y=cf_AF))
+            + geom_jitter(na.rm=TRUE, aes(color = Mutation))
+            + scale_color_manual(values = c("#d62728", "#1f77b4", "black", "grey")) 
+            + ylim(0,0.6)
+        )
+    )
+)
+
+dev.off()
+```
+
+```{r}
+multi_sample_vafs_for_plotting = multi_sample_vafs %>% 
+  filter(!is.na(Variant)) %>% 
+  mutate(Variant = paste(Gene, Variant))
+multi_sample_vafs_for_plotting$Sample_Type[multi_sample_vafs_for_plotting$Sample_Type == "cf_AF"] = "plasma"
+multi_sample_vafs_for_plotting$Sample_Type[multi_sample_vafs_for_plotting$Sample_Type == "bc_AF"] = "blood"
+
+
+(multi_sample_plot = ggplot(multi_sample_vafs_for_plotting, aes(x = Sample_Number, y = VAF, group = interaction(Patient_ID, Variant, Sample_Type))) +
+  geom_point(aes(color = Variant, shape = Sample_Type), size = 2) +
+  geom_line() +
+  theme_bw() +
+  facet_wrap(~Patient_ID) +
+  geom_vline(xintercept = seq(1, 2) + 0.5, linetype = "dashed", color = "grey") +
+  theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank()) +
+  xlab("Sample number") +
+  labs(shape = "Sample type"))
+save_plot(multi_sample_plot, "figures/point_vaf/multi_sample", png = TRUE, height = 8, width = 10)
+
+
+```
+
+```{r}
+test = multi_sample_vafs_for_plotting %>%
+  filter(!is.na(VAF)) %>%
+  filter(Sample_Number != 3) %>%
+  group_by(Patient_ID, Variant, Sample_Type) %>%
+  filter(n() >= 2) %>%
+  ungroup() %>%
+  group_by(Variant) %>%
+  filter(n() >= 4)
+
+ggplot(test, aes(x = Sample_Number, y = VAF, group = interaction(Patient_ID, Variant, Sample_Type))) +
+  geom_point(aes(color = Variant, shape = Sample_Type), size = 2) +
+  geom_line() +
+  theme_bw() +
+  facet_wrap(~Patient_ID) +
+  geom_vline(xintercept = 1.5, linetype = "dashed", color = "grey") +
+  theme(panel.grid.minor = element_blank(), panel.grid.major = element_blank()) +
+  xlab("Sample number") +
+  labs(shape = "Sample type")
+```
+
+```{r}
+library(broom)
+
+# Fit linear models for each group and extract slopes
+slopes = test %>%
+  group_by(Patient_ID, Variant, Sample_Type) %>%
+  mutate(Sample_Number = as.character(Sample_Number)) %>%
+  do(tidy(lm(VAF ~ Sample_Number, data = .))) %>%
+  filter(term == "Sample_Number2") %>%
+  select(Patient_ID, Variant, Sample_Type, estimate) %>%
+  pivot_wider(names_from = "Sample_Type", values_from = "estimate")
+```
+
+
+```{r}
+(slope_plot = ggplot(slopes, aes(x = blood, y = plasma)) +
+  geom_abline(slope = 1, intercept = 0, color = "grey") +
+  sm_statCorr(R2 = TRUE, color = "#d62728") +
+  geom_point() +
+  theme_bw() +
+  ylab("Change in VAF in plasma") +
+  xlab("Change in VAF in blood"))
+save_plot(slope_plot, "figures/point_vaf/slope_plot", png = TRUE)
+
+```
+
+
+
+```{r}
+vafs_nas_filled_in = first_vafs_for_plotting
+
+vafs_nas_filled_in$cf_AF[is.na(vafs_nas_filled_in$cf_AF)] = 0
+vafs_nas_filled_in$bc_AF[is.na(vafs_nas_filled_in$bc_AF)] = 0
+
+ggplot(vafs_nas_filled_in, aes(x = bc_AF, y = cf_AF, color = (bc_AF == 0 | cf_AF == 0))) +
+  geom_point() +
+  theme_bw()
+```
+

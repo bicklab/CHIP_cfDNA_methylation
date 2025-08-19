@@ -1,0 +1,237 @@
+---
+title: "compare_vafs"
+output: html_document
+---
+
+
+```{r setup}
+knitr::opts_knit$set(root.dir = "~/Alyssa/Cell_Free_DNA_Methylation/")
+library(tidyverse)
+library(smplot2)
+
+save_plot = function(plot, file, legend = TRUE, width = 4, height = 4, png = FALSE) {
+  if (png) { ggsave(plot = plot, filename =  paste0(file, ".png"), dpi = 600, width = ifelse(legend, width, width - 1.5), height = height, units = 'in') }
+  ggsave(plot = plot, filename =  paste0(file, ".pdf"), dpi = 600, width = ifelse(legend, width, width - 1.5), height = height, units = 'in')
+}
+
+```
+
+# Load ID mapping data.
+```{r}
+# Function to subtract 95 from the last section
+subtract_95 = function(x) {
+  parts = strsplit(x, "-")[[1]]
+  last_part = as.numeric(parts[length(parts)])
+  new_last_part = last_part - 95
+  parts[length(parts)] = sprintf("%04d", new_last_part) # Format to keep leading zeros
+  paste(parts, collapse = "-")
+}
+
+blood_chive_ids = read_csv("input_data/JVA-11996_sample_ids.csv")
+blood_chive_ids$VANTAGE_ID = lapply(blood_chive_ids$VANTAGE_ID, subtract_95) %>% unlist()
+
+cf_chive_ids = read_csv("input_data/JVA-12708_sample_ids.csv")
+
+all_ids = inner_join(blood_chive_ids %>% rename(bc_methylation_VANTAGE_ID = "VANTAGE_ID"), cf_chive_ids %>% rename(cf_methylation_VANTAGE_ID = "VANTAGE_ID", Patient_ID = "CHIVE_ID"))
+
+# Function to add 95 to the last section
+add_95 = function(x) {
+  parts = strsplit(x, "-")[[1]]
+  last_part = as.numeric(parts[length(parts)])
+  new_last_part = last_part + 95
+  parts[length(parts)] = sprintf("%03d", new_last_part) # Format to keep leading zeros
+  paste(parts, collapse = "-")
+}
+
+all_ids$cf_Bick_TWIST_VANTAGE_ID = gsub("12708", "12696", all_ids$cf_methylation_VANTAGE_ID)
+all_ids$bc_Bick_TWIST_VANTAGE_ID = lapply(all_ids$bc_methylation_VANTAGE_ID, add_95) %>% unlist()
+
+
+all_ids = select(all_ids, c(Patient_ID, Sample_ID, cf_Bick_TWIST_VANTAGE_ID, cf_methylation_VANTAGE_ID, bc_Bick_TWIST_VANTAGE_ID, bc_methylation_VANTAGE_ID))
+```
+
+# Load cell-type data.
+```{r}
+blood_methylCC = read_tsv("tables/blood_94_methylCC_counts.tsv")
+cf_methylCC = read_tsv("tables/cf_92_methylCC_counts.tsv")
+
+pivot_and_label = function(methylCC_df, id_start, id_end) {
+  methylCC_df = methylCC_df %>%
+    pivot_wider(names_from = "celltype", values_from = "est") %>%
+    mutate(VANTAGE_ID = substr(samples, id_start, id_end)) %>%
+    dplyr::select(-samples)
+  return(methylCC_df)
+}
+
+blood_df = pivot_and_label(blood_methylCC, id_start = 28, id_end = 41)
+cf_df = pivot_and_label(cf_methylCC, id_start = 25, id_end = 37)
+
+blood_df = blood_df %>%
+  left_join(blood_chive_ids)
+cf_df = cf_df %>%
+  left_join(cf_chive_ids) %>%
+  rename(Patient_ID = "CHIVE_ID")
+
+colnames(blood_df)[1:7] = paste0("bc_methylation_", colnames(blood_df)[1:7])
+colnames(cf_df)[1:7] = paste0("cf_methylation_", colnames(cf_df)[1:7])
+```
+
+# Load CHIP calls.
+```{r}
+bc_CHIP_calls = read_csv("input_data/cellular_DNA_CHIP_calls.csv")
+cf_CHIP_calls = read_csv("input_data/cf_DNA_CHIP_calls.csv")
+
+bc_CHIP_calls$bc_Bick_TWIST_VANTAGE_ID = sub("-filtered$", "", bc_CHIP_calls$Sample)
+cf_CHIP_calls$cf_Bick_TWIST_VANTAGE_ID = sub("_tumor-filtered$", "", cf_CHIP_calls$Sample)
+
+bc_CHIP_calls = bc_CHIP_calls %>%
+  rename(Gene = "Gene.refGene", Variant_Type = "ExonicFunc.refGene", Variant = "NonsynOI", bc_AF = "AF", bc_DP = "DP") %>%
+  select(bc_Bick_TWIST_VANTAGE_ID, Gene, Variant, Variant_Type, Ref, Alt, bc_AF, bc_DP)
+
+cf_CHIP_calls = cf_CHIP_calls %>%
+  rename(Gene = "Gene.refGene", Variant_Type = "ExonicFunc.refGene", Variant = "NonsynOI", cf_AF = "AF", cf_DP = "DP") %>%
+  select(cf_Bick_TWIST_VANTAGE_ID, Gene, Variant, Variant_Type, Ref, Alt, cf_AF, cf_DP) 
+ 
+bc_CHIP_calls$Variant_Type[bc_CHIP_calls$Variant_Type == "."] = "splicing"
+cf_CHIP_calls$Variant_Type[cf_CHIP_calls$Variant_Type == "."] = "splicing"
+
+```
+
+
+# Combine all data.
+```{r}
+# prepare so full_join will capture both cf and bc variants.
+all_variants = rbind(cf_CHIP_calls %>% filter(cf_AF >= 0.02) %>% select(-c(cf_AF, cf_DP)) %>% left_join(all_ids), bc_CHIP_calls %>% filter(bc_AF >= 0.02) %>% select(-c(bc_AF, bc_DP)) %>% left_join(all_ids)) %>% unique()
+
+# join.
+blood_cf_celltypes_vafs = all_ids %>%
+  left_join(cf_df, by = c("Patient_ID", "Sample_ID", "cf_methylation_VANTAGE_ID")) %>%
+  inner_join(blood_df, by = c("Patient_ID", "Sample_ID", "bc_methylation_VANTAGE_ID")) %>%
+  left_join(all_variants) %>%
+  full_join(cf_CHIP_calls %>% filter(cf_AF >= 0.02)) %>%
+  full_join(bc_CHIP_calls %>% filter(bc_AF >= 0.02)) %>%
+  filter(is.na(`...4`)) %>% # remove diluted sample
+  select(-`...4`) %>%
+  filter(!is.na(Sample_ID)) # there are some samples that did not have both sample types
+
+inclusion_categories = read_csv("input_data/cf_dna_inclusion_categories.csv") 
+inclusion_categories$Group[inclusion_categories$Patient_ID == "CH-22-047" & inclusion_categories$Sample_ID == "C24-07-006"] = "No CHIP"
+inclusion_categories = unique(inclusion_categories)
+blood_cf_celltypes_vafs = left_join(blood_cf_celltypes_vafs, inclusion_categories) %>%
+  mutate(Tissue = ifelse(Group %in% c("BM (3 months apart)", "BM (from BM)", "BM (same day)", "BM (6 months apart)"), "BM", "Blood"))
+
+numbered_samples = blood_cf_celltypes_vafs %>%
+  group_by(Patient_ID) %>%
+  select(Patient_ID, Sample_ID) %>%
+  unique() %>%
+  arrange(Sample_ID) %>%
+  group_by(Patient_ID) %>%
+  mutate(Sample_Number = factor(row_number()))
+
+blood_cf_celltypes_vafs = left_join(blood_cf_celltypes_vafs, numbered_samples)
+
+write_tsv(blood_cf_celltypes_vafs, "tables/blood_cf_celltypes_vafs.tsv")
+```
+
+
+
+```{r}
+blood_cf_celltypes_vafs = read_tsv("tables/blood_cf_celltypes_vafs.tsv") %>%
+  filter(Tissue == "Blood", Sample_Number == 1)
+
+(tet2_plasma_blood_vaf_correlation = ggplot(blood_cf_celltypes_vafs %>% filter(Gene == "TET2") %>% select(bc_AF, cf_AF) %>% unique() %>% na.omit(), aes(cf_AF, bc_AF)) +
+  geom_abline(slope = 1, intercept = 0, color = "grey") +
+  geom_point() +
+  sm_statCorr(R2 = TRUE, color = "black") +
+  theme_bw() +
+  xlab("cfDNA VAF") +
+  ylab("Whole blood DNA VAF") +
+  ylim(0, 0.6) +
+  xlim(0, 0.6) +
+  ggtitle("TET2"))
+save_plot(tet2_plasma_blood_vaf_correlation, "figures/point_vaf/tet2_plasma_blood_vaf_correlation", png = TRUE, height = 3, width = 3)
+
+(dnmt3a_plasma_blood_vaf_correlation = ggplot(blood_cf_celltypes_vafs %>% filter(Gene == "DNMT3A") %>% select(bc_AF, cf_AF) %>% unique() %>% na.omit(), aes(cf_AF, bc_AF)) +
+  geom_abline(slope = 1, intercept = 0, color = "grey") +
+  geom_point() +
+  sm_statCorr(R2 = TRUE, color = "black") +
+  theme_bw() +
+  xlab("cfDNA VAF") +
+  ylab("Whole blood DNA VAF") +
+  ylim(0, 0.4) +
+  xlim(0, 0.4) +
+  ggtitle("DNMT3A"))
+save_plot(dnmt3a_plasma_blood_vaf_correlation, "figures/point_vaf/dnmt3a_plasma_blood_vaf_correlation", png = TRUE, height = 3, width = 3)
+
+(tp53_plasma_blood_vaf_correlation = ggplot(blood_cf_celltypes_vafs %>% filter(Gene == "TP53") %>% select(bc_AF, cf_AF) %>% unique() %>% na.omit(), aes(cf_AF, bc_AF)) +
+  geom_abline(slope = 1, intercept = 0, color = "grey") +
+  geom_point() +
+  sm_statCorr(R2 = TRUE, color = "black") +
+  theme_bw() +
+  xlab("cfDNA VAF") +
+  ylab("Whole blood DNA VAF") +
+  ylim(0, 0.2) +
+  xlim(0, 0.2) +
+  ggtitle("TP53"))
+save_plot(tp53_plasma_blood_vaf_correlation, "figures/point_vaf/tp53_plasma_blood_vaf_correlation", png = TRUE, height = 3, width = 3)
+
+(sf3b1_plasma_blood_vaf_correlation = ggplot(blood_cf_celltypes_vafs %>% filter(Gene == "SF3B1") %>% select(bc_AF, cf_AF) %>% unique() %>% na.omit(), aes(cf_AF, bc_AF)) +
+  geom_abline(slope = 1, intercept = 0, color = "grey") +
+  geom_point() +
+  sm_statCorr(R2 = TRUE, color = "black") +
+  theme_bw() +
+  xlab("cfDNA VAF") +
+  ylab("Whole blood DNA VAF") +
+  ylim(0, 0.5) +
+  xlim(0, 0.5) +
+  ggtitle("SF3B1"))
+save_plot(sf3b1_plasma_blood_vaf_correlation, "figures/point_vaf/sf3b1_plasma_blood_vaf_correlation", png = TRUE, height = 3, width = 3)
+
+(ppm1d_plasma_blood_vaf_correlation = ggplot(blood_cf_celltypes_vafs %>% filter(Gene == "PPM1D") %>% select(bc_AF, cf_AF) %>% unique() %>% na.omit(), aes(cf_AF, bc_AF)) +
+  geom_abline(slope = 1, intercept = 0, color = "grey") +
+  geom_point() +
+  sm_statCorr(R2 = TRUE, color = "black") +
+  theme_bw() +
+  xlab("cfDNA VAF") +
+  ylab("Whole blood DNA VAF") +
+  ylim(0, 0.3) +
+  xlim(0, 0.3) +
+  ggtitle("PPM1D"))
+save_plot(ppm1d_plasma_blood_vaf_correlation, "figures/point_vaf/ppm1d_plasma_blood_vaf_correlation", png = TRUE, height = 3, width = 3)
+
+
+```
+
+```{r}
+second_blood_cf_celltypes_vafs = read_tsv("tables/blood_cf_celltypes_vafs.tsv") %>%
+  filter(Tissue == "Blood", Sample_Number == 2)
+```
+
+
+```{r}
+blood_cf_celltypes_vafs$VAF_diff = blood_cf_celltypes_vafs$bc_AF - blood_cf_celltypes_vafs$cf_AF
+
+blood_cf_celltypes_vafs = blood_cf_celltypes_vafs %>%
+  mutate(gran_diff = bc_methylation_Gran - cf_methylation_Gran) %>%
+  mutate(mono_diff = bc_methylation_Mono - cf_methylation_Mono) %>%
+  mutate(b_diff = bc_methylation_Bcell - cf_methylation_Bcell) %>%
+  mutate(cd4_diff = bc_methylation_CD4T - cf_methylation_CD4T) %>%
+  mutate(cd8_diff = bc_methylation_CD8T - cf_methylation_CD8T) %>%
+  mutate(nk_diff = bc_methylation_NK - cf_methylation_NK) 
+
+
+average_diffs = blood_cf_celltypes_vafs %>%
+  mutate(large_VAF_diff = abs(VAF_diff) > 0.1) %>%
+  filter(!is.na(large_VAF_diff) & !is.na(bc_methylation_Gran))
+
+t.test(average_diffs$gran_diff[average_diffs$large_VAF_diff == TRUE], average_diffs$gran_diff[average_diffs$large_VAF_diff == FALSE])
+t.test(average_diffs$mono_diff[average_diffs$large_VAF_diff == TRUE], average_diffs$mono_diff[average_diffs$large_VAF_diff == FALSE])
+t.test(average_diffs$b_diff[average_diffs$large_VAF_diff == TRUE], average_diffs$b_diff[average_diffs$large_VAF_diff == FALSE])
+t.test(average_diffs$cd4_diff[average_diffs$large_VAF_diff == TRUE], average_diffs$cd4_diff[average_diffs$large_VAF_diff == FALSE])
+t.test(average_diffs$cd8_diff[average_diffs$large_VAF_diff == TRUE], average_diffs$cd8_diff[average_diffs$large_VAF_diff == FALSE])
+t.test(average_diffs$nk_diff[average_diffs$large_VAF_diff == TRUE], average_diffs$nk_diff[average_diffs$large_VAF_diff == FALSE])
+```
+
+
+
+

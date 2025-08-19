@@ -1,0 +1,169 @@
+---
+title: "R Notebook"
+output: html_document
+---
+
+
+```{r setup}
+knitr::opts_knit$set(root.dir = "~/Alyssa/Cell_Free_DNA_Methylation/")
+library(tidyverse)
+library(smplot2)
+
+save_plot = function(plot, file, legend = TRUE, width = 4, height = 4, png = FALSE) {
+  if (png) { ggsave(plot = plot, filename =  paste0(file, ".png"), dpi = 600, width = ifelse(legend, width, width - 1.5), height = height, units = 'in') }
+  ggsave(plot = plot, filename =  paste0(file, ".pdf"), dpi = 600, width = ifelse(legend, width, width - 1.5), height = height, units = 'in')
+}
+
+```
+
+
+```{r}
+blood_cf_celltypes_vafs = read_tsv("tables/blood_cf_celltypes_vafs.tsv") %>%
+  filter(Tissue == "Blood", Sample_Number == 1)
+
+tet2_data = blood_cf_celltypes_vafs %>%
+  filter(Gene == "TET2")
+
+dnmt3a_data = blood_cf_celltypes_vafs %>%
+  filter(Gene == "DNMT3A")
+
+ppm1d_data = blood_cf_celltypes_vafs %>%
+  filter(Gene == "PPM1D")
+
+sf3b1_data = blood_cf_celltypes_vafs %>%
+  filter(Gene == "SF3B1")
+
+tp53_data = blood_cf_celltypes_vafs %>%
+  filter(Gene == "TP53")
+
+```
+
+
+```{r}
+
+for (i in 1:nrow(tet2_data)) {
+ tet2_data_minus_one <- tet2_data[-i,]
+ tet2_data_lm_regression = lm(bc_AF ~ cf_AF + cf_methylation_Gran + cf_methylation_Bcell + cf_methylation_Mono, tet2_data_minus_one)
+ summary_obj <- summary(tet2_data_lm_regression)
+ tet2_data$r2[i] <- summary_obj$r.squared
+ tet2_data$adj.r2[i] <- summary_obj$adj.r.squared
+}
+
+for (i in 1:nrow(dnmt3a_data)) {
+ dnmt3a_data_minus_one <- dnmt3a_data[-i,]
+ dnmt3a_data_lm_regression = lm(bc_AF ~ cf_AF + cf_methylation_Gran + cf_methylation_Bcell + cf_methylation_Mono, dnmt3a_data_minus_one)
+ summary_obj <- summary(dnmt3a_data_lm_regression)
+ dnmt3a_data$r2[i] <- summary_obj$r.squared
+ dnmt3a_data$adj.r2[i] <- summary_obj$adj.r.squared
+}
+
+for (i in 1:nrow(ppm1d_data)) {
+ ppm1d_data_minus_one <- ppm1d_data[-i,]
+ ppm1d_data_lm_regression = lm(bc_AF ~ cf_AF + cf_methylation_Gran + cf_methylation_Bcell + cf_methylation_Mono, ppm1d_data_minus_one)
+ summary_obj <- summary(ppm1d_data_lm_regression)
+ ppm1d_data$r2[i] <- summary_obj$r.squared
+ ppm1d_data$adj.r2[i] <- summary_obj$adj.r.squared
+}
+
+for (i in 1:nrow(sf3b1_data)) {
+ sf3b1_data_minus_one <- sf3b1_data[-i,]
+ sf3b1_data_lm_regression = lm(bc_AF ~ cf_AF + cf_methylation_Gran + cf_methylation_Bcell + cf_methylation_Mono, sf3b1_data_minus_one)
+ summary_obj <- summary(sf3b1_data_lm_regression)
+ sf3b1_data$r2[i] <- summary_obj$r.squared
+ sf3b1_data$adj.r2[i] <- summary_obj$adj.r.squared
+}
+
+for (i in 1:nrow(tp53_data)) {
+ tp53_data_minus_one <- tp53_data[-i,]
+ tp53_data_lm_regression = lm(bc_AF ~ cf_AF + cf_methylation_Gran + cf_methylation_Bcell + cf_methylation_Mono, tp53_data_minus_one)
+ summary_obj <- summary(tp53_data_lm_regression)
+ tp53_data$r2[i] <- summary_obj$r.squared
+ tp53_data$adj.r2[i] <- summary_obj$adj.r.squared
+}
+
+# Plotting R²
+tet2_validation = ggplot(tet2_data %>% filter(!(is.na(bc_AF) | is.na(cf_AF))), aes(x = 1:nrow(tet2_data %>% filter(!(is.na(bc_AF) | is.na(cf_AF)))))) +
+  geom_line(aes(y = r2), color = "blue") +
+  labs(title = "TET2 Jackknife R² values",
+       x = "Iteration (left-out sample index)",
+       y = "R² value") +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0, 1)) +
+  theme(plot.title = element_text(hjust = 0.5))
+save_plot(tet2_validation, "figures/jacknife_validation/tet2_validation", png = TRUE, height = 3, width = 3)
+
+dnmt3a_validation = ggplot(dnmt3a_data %>% filter(!(is.na(bc_AF) | is.na(cf_AF))), aes(x = 1:nrow(dnmt3a_data %>% filter(!(is.na(bc_AF) | is.na(cf_AF)))))) +
+  geom_line(aes(y = r2), color = "blue") +
+  labs(title = "DNMT3A Jackknife R² values",
+       x = "Iteration (left-out sample index)",
+       y = "R² value") +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0, 1)) +
+  theme(plot.title = element_text(hjust = 0.5))
+save_plot(dnmt3a_validation, "figures/jacknife_validation/dnmt3a_validation", png = TRUE, height = 3, width = 3)
+
+ppm1d_validation = ggplot(ppm1d_data %>% filter(!(is.na(bc_AF) | is.na(cf_AF))), aes(x = 1:nrow(ppm1d_data %>% filter(!(is.na(bc_AF) | is.na(cf_AF)))))) +
+  geom_line(aes(y = r2), color = "blue") +
+  labs(title = "PPM1D Jackknife R² values",
+       x = "Iteration (left-out sample index)",
+       y = "R² value") +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0, 1)) +
+  theme(plot.title = element_text(hjust = 0.5))
+save_plot(ppm1d_validation, "figures/jacknife_validation/ppm1d_validation", png = TRUE, height = 3, width = 3)
+
+sf3b1_validation = ggplot(sf3b1_data %>% filter(!(is.na(bc_AF) | is.na(cf_AF))), aes(x = 1:nrow(sf3b1_data %>% filter(!(is.na(bc_AF) | is.na(cf_AF)))))) +
+  geom_line(aes(y = r2), color = "blue") +
+  labs(title = "SF3B1 Jackknife R² values",
+       x = "Iteration (left-out sample index)",
+       y = "R² value") +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0, 1)) +
+  theme(plot.title = element_text(hjust = 0.5))
+save_plot(sf3b1_validation, "figures/jacknife_validation/sf3b1_validation", png = TRUE, height = 3, width = 3)
+
+tp53_validation = ggplot(tp53_data %>% filter(!(is.na(bc_AF) | is.na(cf_AF))), aes(x = 1:nrow(tp53_data %>% filter(!(is.na(bc_AF) | is.na(cf_AF)))))) +
+  geom_line(aes(y = r2), color = "blue") +
+  labs(title = "TP53 Jackknife R² values",
+       x = "Iteration (left-out sample index)",
+       y = "R² value") +
+  theme_minimal() +
+  scale_y_continuous(limits = c(0, 1)) +
+  theme(plot.title = element_text(hjust = 0.5))
+save_plot(tp53_validation, "figures/jacknife_validation/tp53_validation", png = TRUE, height = 3, width = 3)
+
+```
+
+```{r}
+median(dnmt3a_data$r2)
+median(tet2_data$r2)
+median(ppm1d_data$r2)
+median(sf3b1_data$r2)
+median(tp53_data$r2)
+
+```
+
+```{r}
+check = read_tsv("tables/blood_cf_celltypes_vafs.tsv") %>%
+  filter(Tissue == "Blood") #%>%
+  #filter(Sample_Number != 1) #%>%
+  #pull(Sample_ID) %>%
+  #unique() %>%
+  #length()
+
+all_blood_cf_celltypes_vafs = read_tsv("tables/blood_cf_celltypes_vafs.tsv") %>%
+  filter(Tissue == "Blood") %>%
+  select(Patient_ID, Sample_ID, Sample_Number, Gene, Variant, Variant_Type, bc_AF, cf_AF, bc_methylation_Gran, bc_methylation_CD4T, bc_methylation_CD8T, bc_methylation_Bcell,
+         bc_methylation_Mono, bc_methylation_NK, cf_methylation_Gran, cf_methylation_CD4T, cf_methylation_CD8T,
+         cf_methylation_Bcell, cf_methylation_Mono, cf_methylation_NK) %>%
+  rename(wbDNA_VAF = "bc_AF", cfDNA_VAF = "cf_AF", wbDNA_Gran = "bc_methylation_Gran", wbDNA_CD4T = "bc_methylation_CD4T",
+         wbDNA_CD8T = "bc_methylation_CD8T", wbDNA_B = "bc_methylation_Bcell", wbDNA_Mono = "bc_methylation_Mono",
+         wbDNA_NK = "bc_methylation_NK", cfDNA_Gran = "cf_methylation_Gran", cfDNA_CD4T = "cf_methylation_CD4T",
+         cfDNA_CD8T = "cf_methylation_CD8T", cfDNA_B = "cf_methylation_Bcell",cfDNA_Mono = "cf_methylation_Mono", 
+         cfDNA_NK = "cf_methylation_NK") %>%
+  mutate(across(where(is.numeric), ~ signif(.x, 3))) %>%
+  arrange(Patient_ID)
+
+write_csv(all_blood_cf_celltypes_vafs, "tables/supplemental_table_1.csv")
+```
+
